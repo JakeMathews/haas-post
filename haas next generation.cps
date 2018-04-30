@@ -10,7 +10,7 @@
   FORKID {DBD402DA-DE90-4634-A6A3-0AE5CC97DEC7}
 */
 
-description = "HAAS - Next Generation Control";
+description = "HAAS - Next Generation Control - Probe Print";
 vendor = "Haas Automation";
 vendorUrl = "https://www.haascnc.com";
 legal = "Copyright (C) 2012-2018 by Autodesk, Inc.";
@@ -208,6 +208,7 @@ var cycleSubprogramIsActive = false;
 var patternIsActive = false;
 var lastOperationComment = "";
 var retracted = false; // specifies that the tool has been retracted to the safe plane
+var incrementComponent = false;
 
 // used to convert blocks to optional for safeStartAllOperations, might get used outside of onSection
 var operationNeedsSafeStart = false;
@@ -216,7 +217,12 @@ var operationNeedsSafeWorkOffset = false;
 var operationNeedsSafeWorkPlane = false;
 var operationNeedsSafeCoolant = false;
 
-
+/**
+ * Writes the specified statement in DPRINT format
+ */
+function writeDPRNT(text) {
+  writeBlock("DPRNT[" + text + "]")
+}
 
 /**
   Writes the specified block.
@@ -1036,6 +1042,13 @@ function onParameter(name, value) {
   if (name == "probe-output-work-offset") {
     probeOutputWorkOffset = (value > 0) ? value : 1;
   }
+  if (name == 'action') {
+    switch (value) {
+      case "2":
+        incrementComponent = true;
+        break;
+    }
+  }
 }
 
 /** Returns true if the spatial vectors are significantly different. */
@@ -1692,7 +1705,20 @@ function setProbingAngle() {
   }
 }
 
+function updateOptionalInput (incrementComponent) {
+  var print = true;
+  var optionalInput = "W1."
+  if (incrementComponent) {
+    optionalInput = "W2."
+  }
+  return optionalInput;
+}
+
 function onCyclePoint(x, y, z) {
+  // Only print if the operation comment does not include the words noprint. Will print if there is no operation comment
+  var print = currentSection.hasParameter("operation-comment") ? currentSection.getParameter("operation-comment").toLowerCase().indexOf("noprint") === -1 : true;
+  var optionalInput = updateOptionalInput(incrementComponent)
+
   var probeWorkOffsetCode;
   if (isProbeOperation()) {
     if (!isSameDirection(currentSection.workPlane.forward, new Vector(0, 0, 1)) && (!cycle.probeMode || (cycle.probeMode == 0))) {
@@ -1953,7 +1979,8 @@ function onCyclePoint(x, y, z) {
         gFormat.format(65), "P" + 9811,
         "X" + xyzFormat.format(x + approach(cycle.approach1) * (cycle.probeClearance + tool.diameter/2)),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        "S" + probeWorkOffsetCode // "T" + toolFormat.format(probeToolDiameterOffset)
+        "S" + probeWorkOffsetCode, // "T" + toolFormat.format(probeToolDiameterOffset)
+        conditional(print, optionalInput)
       );
       break;
     case "probing-y":
@@ -1963,7 +1990,8 @@ function onCyclePoint(x, y, z) {
         gFormat.format(65), "P" + 9811,
         "Y" + xyzFormat.format(y + approach(cycle.approach1) * (cycle.probeClearance + tool.diameter/2)),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        "S" + probeWorkOffsetCode // "T" + toolFormat.format(probeToolDiameterOffset)
+        "S" + probeWorkOffsetCode, // "T" + toolFormat.format(probeToolDiameterOffset)
+        conditional(print, optionalInput)
       );
       break;
     case "probing-z":
@@ -1973,7 +2001,8 @@ function onCyclePoint(x, y, z) {
         gFormat.format(65), "P" + 9811,
         "Z" + xyzFormat.format(z - cycle.depth),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        "S" + probeWorkOffsetCode // "T" + toolFormat.format(probeToolLengthOffset)
+        "S" + probeWorkOffsetCode, // "T" + toolFormat.format(probeToolLengthOffset)
+        conditional(print, optionalInput)
       );
       break;
     case "probing-x-wall":
@@ -1984,7 +2013,8 @@ function onCyclePoint(x, y, z) {
         zOutput.format(z - cycle.depth),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(cycle.probeClearance),
-        "S" + probeWorkOffsetCode // "T" + toolFormat.format(probeToolDiameterOffset)
+        "S" + probeWorkOffsetCode, // "T" + toolFormat.format(probeToolDiameterOffset)
+        conditional(print, optionalInput)
       );
       break;
     case "probing-y-wall":
@@ -1995,7 +2025,8 @@ function onCyclePoint(x, y, z) {
         zOutput.format(z - cycle.depth),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(cycle.probeClearance),
-        "S" + probeWorkOffsetCode // "T" + toolFormat.format(probeToolDiameterOffset)
+        "S" + probeWorkOffsetCode, // "T" + toolFormat.format(probeToolDiameterOffset)
+        conditional(print, optionalInput)
       );
       break;
     case "probing-x-channel":
@@ -2005,7 +2036,8 @@ function onCyclePoint(x, y, z) {
         "X" + xyzFormat.format(cycle.width1),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         // not required "R" + xyzFormat.format(cycle.probeClearance),
-        "S" + probeWorkOffsetCode // "T" + toolFormat.format(probeToolDiameterOffset)
+        "S" + probeWorkOffsetCode, // "T" + toolFormat.format(probeToolDiameterOffset)
+        conditional(print, optionalInput)
       );
       break;
     case "probing-x-channel-with-island":
@@ -2016,7 +2048,8 @@ function onCyclePoint(x, y, z) {
         zOutput.format(z - cycle.depth),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(-cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-y-channel":
@@ -2027,7 +2060,8 @@ function onCyclePoint(x, y, z) {
         "Y" + xyzFormat.format(cycle.width1),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         // not required "R" + xyzFormat.format(cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-y-channel-with-island":
@@ -2039,7 +2073,8 @@ function onCyclePoint(x, y, z) {
         zOutput.format(z - cycle.depth),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(-cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-xy-circular-boss":
@@ -2050,7 +2085,8 @@ function onCyclePoint(x, y, z) {
         "Z" + xyzFormat.format(z - cycle.depth),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-xy-circular-hole":
@@ -2060,7 +2096,8 @@ function onCyclePoint(x, y, z) {
         "D" + xyzFormat.format(cycle.width1),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         // not required "R" + xyzFormat.format(cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-xy-circular-hole-with-island":
@@ -2071,7 +2108,8 @@ function onCyclePoint(x, y, z) {
         "D" + xyzFormat.format(cycle.width1),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(-cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-xy-rectangular-hole":
@@ -2081,7 +2119,8 @@ function onCyclePoint(x, y, z) {
         "X" + xyzFormat.format(cycle.width1),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         // not required "R" + xyzFormat.format(-cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       writeBlock(
         gFormat.format(65), "P" + 9812,
@@ -2099,15 +2138,19 @@ function onCyclePoint(x, y, z) {
         "X" + xyzFormat.format(cycle.width1),
         "R" + xyzFormat.format(cycle.probeClearance),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
+      incrementComponent = false
+      optionalInput = updateOptionalInput()
       writeBlock(
         gFormat.format(65), "P" + 9812,
         "Z" + xyzFormat.format(z - cycle.depth),
         "Y" + xyzFormat.format(cycle.width2),
         "R" + xyzFormat.format(cycle.probeClearance),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
     case "probing-xy-rectangular-hole-with-island":
@@ -2118,15 +2161,19 @@ function onCyclePoint(x, y, z) {
         "X" + xyzFormat.format(cycle.width1),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(-cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
+      incrementComponent = false
+      optionalInput = updateOptionalInput()
       writeBlock(
         gFormat.format(65), "P" + 9812,
         "Z" + xyzFormat.format(z - cycle.depth),
         "Y" + xyzFormat.format(cycle.width2),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
         "R" + xyzFormat.format(-cycle.probeClearance),
-        "S" + probeWorkOffsetCode
+        "S" + probeWorkOffsetCode,
+        conditional(print, optionalInput)
       );
       break;
 
@@ -2148,7 +2195,8 @@ function onCyclePoint(x, y, z) {
         conditional(cornerI != 0, "I" + xyzFormat.format(cornerI)),
         conditional(cornerJ != 0, "J" + xyzFormat.format(cornerJ)),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        conditional((g68RotationMode == 0) || (angularProbingMode == ANGLE_PROBE_USE_CAXIS), "S" + probeWorkOffsetCode)
+        conditional((g68RotationMode == 0) || (angularProbingMode == ANGLE_PROBE_USE_CAXIS), "S" + probeWorkOffsetCode),
+        conditional(print, optionalInput)
       );
       break;
     case "probing-xy-outer-corner":
@@ -2169,7 +2217,8 @@ function onCyclePoint(x, y, z) {
         conditional(cornerI != 0, "I" + xyzFormat.format(cornerI)),
         conditional(cornerJ != 0, "J" + xyzFormat.format(cornerJ)),
         "Q" + xyzFormat.format(cycle.probeOvertravel),
-        conditional((g68RotationMode == 0) || (angularProbingMode == ANGLE_PROBE_USE_CAXIS), "S" + probeWorkOffsetCode)
+        conditional((g68RotationMode == 0) || (angularProbingMode == ANGLE_PROBE_USE_CAXIS), "S" + probeWorkOffsetCode),
+        conditional(print, optionalInput)
       );
       break;
     case "probing-x-plane-angle":
@@ -2179,7 +2228,8 @@ function onCyclePoint(x, y, z) {
         gFormat.format(65), "P" + 9843,
         "X" + xyzFormat.format(x + approach(cycle.approach1) * (cycle.probeClearance + tool.diameter/2)),
         "D" + xyzFormat.format(cycle.probeSpacing),
-        "Q" + xyzFormat.format(cycle.probeOvertravel)
+        "Q" + xyzFormat.format(cycle.probeOvertravel),
+        conditional(print, optionalInput)
       );
       g68RotationMode = 1;
       break;
@@ -2190,7 +2240,8 @@ function onCyclePoint(x, y, z) {
         gFormat.format(65), "P" + 9843,
         "Y" + xyzFormat.format(y + approach(cycle.approach1) * (cycle.probeClearance + tool.diameter/2)),
         "D" + xyzFormat.format(cycle.probeSpacing),
-        "Q" + xyzFormat.format(cycle.probeOvertravel)
+        "Q" + xyzFormat.format(cycle.probeOvertravel),
+        conditional(print, optionalInput)
       );
       g68RotationMode = 1;
       break;
@@ -2251,7 +2302,13 @@ function onCyclePoint(x, y, z) {
       writeBlock(xOutput.format(x), yOutput.format(y), zOutput.format(z));
     }
   }
+
+  if (print && isProbeOperation()) {
+    writeDPRNT("CURRENT SECTION " + currentSection.getParameter("operation-comment"));
+  }
 }
+
+
 
 function onCycleEnd() {
   if (isProbeOperation()) {
@@ -2259,6 +2316,7 @@ function onCycleEnd() {
     writeBlock(gFormat.format(65), "P" + 9833); // spin the probe off
     setProbingAngle(); // define rotation of part
     // we can move in rapid from retract optionally
+    incrementComponent = false;
   } else {
     if (cycleSubprogramIsActive) {
       subprogramEnd();
@@ -2858,11 +2916,19 @@ var mapCommand = {
   COMMAND_SPINDLE_COUNTERCLOCKWISE:4,
   COMMAND_STOP_SPINDLE:5,
   COMMAND_ORIENTATE_SPINDLE:19,
-  COMMAND_LOAD_TOOL:6
+  COMMAND_LOAD_TOOL:6,
+  COMMAND_VERIFY:24
 };
+
+function setMacro(macroVariable, value) {
+  writeBlock("#" + macroVariable, "=", value)
+}
 
 function onCommand(command) {
   switch (command) {
+  case COMMAND_VERIFY:
+    setMacro(171, 0); // Reset component variable to 0
+    return;
   case COMMAND_STOP:
     writeBlock(mFormat.format(0));
     forceSpindleSpeed = true;
